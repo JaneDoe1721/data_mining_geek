@@ -39,11 +39,11 @@ class MagnitParser:
 
         product_template = {
 
-            'promo_name': ('div', 'action__title', 'text'),
+            'promo_name': ('p', 'action__name-text', 'text'),
             'product_name': ('div', 'action__title', 'text'),
             'old_price': ('div', 'label__price_old', 'text'),
             'new_price': ('div', 'label__price_new',  'text'),
-            'image_url': ('img', '', 'text'),
+            'image_url': ('img', 'action__image', 'data-src'),
             'date_from': ('div', 'action__date-label', 'text'),
             'date_to': ('div', 'action__date-label', 'text'),
         }
