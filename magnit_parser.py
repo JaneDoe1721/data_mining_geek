@@ -2,14 +2,28 @@ from bs4 import BeautifulSoup
 import requests
 from urllib.parse import urlparse
 from pymongo import MongoClient
+import datetime
 import re
+
+MONTHS = {
+    "янв": 1,
+    "фев": 2,
+    "март": 3,
+    "апр": 4,
+    "май": 5,
+    "июн": 6,
+    "июл": 7,
+    "авг": 8,
+    "сент": 9,
+    "окт": 10,
+    "ноя": 11,
+    "дек": 12,
+}
+
 
 class MagnitParser:
     _headers = {
         'User-Agent': "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:81.0) Gecko/20100101 Firefox/81.0",
-    }
-    _params = {
-        'geo': 'moskva',
     }
 
     def __init__(self, start_url):
@@ -36,25 +50,26 @@ class MagnitParser:
             print(1)
 
     def get_product_structure(self, product_soup, url):
-
+        date = product_soup.find('div', 'action__date-label').text
+        date_list = date.replace('с', '', 1).replace(' ', '', 1).split('по')
+        finaly_list = []
+        for date in date_list:
+            temp_date = date.split()
+            finaly_list.append(datetime.datetime(year=datetime.datetime.now().year, day=int(temp_date[0]),
+                                     month=MONTHS[temp_date[1][:3]]))
         product_template = {
-
-            'promo_name': ('p', 'action__name-text', 'text'),
-            'product_name': ('div', 'action__title', 'text'),
-            'old_price': ('div', 'label__price_old', 'text'),
-            'new_price': ('div', 'label__price_new',  'text'),
-            'image_url': ('img', 'action__image', 'data-src'),
-            'date_from': ('div', 'action__date-label', 'text'),
-            'date_to': ('div', 'action__date-label', 'text'),
+            'url': url,
+            'promo_name': product_soup.find('p', 'action__name-text').text,
+            'product_name': product_soup.find('div', 'action__title').text,
+            'old_price': float(product_soup.find('div', 'label__price label__price_old').text.replace('\n','', 1).replace('\n','.',1).replace('\n','',1)),
+            'new_price': float(product_soup.find('div', 'label__price label__price_new').text.replace('\n','', 1).replace('\n','.',1).replace('\n','',1)),
+            'image_url': f'{"https://magnit.ru"}{product_soup.find("img", attrs={"class": "action__image"}).attrs["data-src"]}',
+            'date_from': finaly_list[0],
+            'date_to': finaly_list[1],
         }
-        product = {'url': url, }
-        for key, value in product_template.items():
-            try:
-                product[key] = getattr(product_soup.find(value[0], attrs={'class': value[1]}), value[2])
-            except Exception:
-                product[key] = None
+        print(1)
 
-        return product
+        return product_template
 
     def save_to(self, product_data: dict):
         collection = self.db['magnit']
@@ -66,7 +81,6 @@ if __name__ == '__main__':
     url = 'https://magnit.ru/promo/?geo=moskva'
     parser = MagnitParser(url)
     parser.parse()
-
 
 mongo_client = MongoClient('mongodb://localhost:27017')
 db = mongo_client['parse_10']
