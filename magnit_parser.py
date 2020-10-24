@@ -5,7 +5,8 @@ from pymongo import MongoClient
 import datetime
 import re
 
-MONTHS = {
+MONTH = {
+    "дек": 12,
     "янв": 1,
     "фев": 2,
     "март": 3,
@@ -17,7 +18,6 @@ MONTHS = {
     "сент": 9,
     "окт": 10,
     "ноя": 11,
-    "дек": 12,
 }
 
 
@@ -56,7 +56,7 @@ class MagnitParser:
         for date in date_list:
             temp_date = date.split()
             finaly_list.append(datetime.datetime(year=datetime.datetime.now().year, day=int(temp_date[0]),
-                                     month=MONTHS[temp_date[1][:3]]))
+                                     month=MONTH[temp_date[1][:3]]))
         product_template = {
             'url': url,
             'promo_name': product_soup.find('p', 'action__name-text').text,
