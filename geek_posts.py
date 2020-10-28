@@ -1,141 +1,97 @@
 import requests
-import json
-import datetime as dt
-import time
-from bs4 import BeautifulSoup
+from datetime import datetime
+from bs4 import BeautifulSoup, element
 from urllib.parse import urlparse
-import re
 
-from database import Geek_posts
-from models import Writer, Tag, Post
-
-MONTHS = {
-        "янв": 1,
-        "фев": 2,
-        "мар": 3,
-        "апр": 4,
-        "май": 5,
-        "мая": 5,
-        "июн": 6,
-        "июл": 7,
-        "авг": 8,
-        "сен": 9,
-        "окт": 10,
-        "ноя": 11,
-        "дек": 12,
-    }
+from database import Geek_blog
 
 
 class PostsParser:
-
-    __url = {
-        'start_url':  'https://geekbrains.ru/posts',
-        'comment_url': 'https://geekbrains.ru/api/v2/comments',
+    _headers = {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:81.0) Gecko/20100101 Firefox/81.0',
     }
 
-    __params = {
-        'commentable_type': 'Post',
-        'commentable_id': 2391,
-        'order': 'desc',
-    }
+    def __init__(self, start_url: str):
+        self.start_url = start_url
+        _url = urlparse(start_url)
+        self.start_website_url = f'{_url.scheme}://{_url.hostname}'
+        self.db_blog = Geek_blog()
 
-    def __init__(self, db):
-        self.attended_urls = set()
-        self.links = set()
-        self.data_post = []
-        self.db: Geek_posts = db
+    def _get_soup(self, url_for_pars: str) -> BeautifulSoup:
+        response = requests.get(url_for_pars, headers=self._headers)
+        return BeautifulSoup(response.text, 'lxml')
 
-    def parse(self, url=__url['start_url']):
-        while url:
-            if url in self.attended_urls:
-                break
-            response = requests.get(url)
-            self.attended_urls.add(url)
-            soup = BeautifulSoup(response.text, 'lxml')
-            url = self.next_page(soup)
-            self.search_links(soup)
-            time.sleep(0.100)
+    def _get_comment(self, comments_json: list, comments_list: list) -> None:
+        for comment in comments_json:
+            comment_data = comment['comment']
+            comments_list.append({'id': comment_data['id'],
+                                  'author_name': comment_data['user']['full_name'],
+                                  'author_url': comment_data['user']['url'],
+                                  'comment_text': comment_data['body']})
+            if len(comment_data['children']) > 0:
+                self._get_comment(comment_data['children'], comments_list)
 
-    def next_page(self, soup: BeautifulSoup):
-        next = soup.find('ul', attrs={'class': 'gb__pagination'})
-        future = next.find('a', text=re.compile('›'))
-        if future and future.get('href'):
-            return f'{"https://geekbrains.ru"}{future.get("href")}'
-        else:
-            return None
-
-    def search_links(self, soup: BeautifulSoup):
-        cover = soup.find('div', attrs={'class': 'post-items-wrapper'})
-        posts = cover.find('div', attrs={'class': 'post-item'})
-        link = set()
-        for item in posts:
-            link.add(f'{"https://geekbrains.ru"}{item.find("a").get("href")}')
-        self.links.update(link)
-
-    def main_parse(self):
-        for url in self.links:
-            if url in self.attended_urls:
-                continue
-            response = requests.get(url)
-            self.attended_urls.add(url)
-            soup = BeautifulSoup(response.text, 'lxml')
-            if len(self.data_post) > 5:
-                break
-            self.data_post.append(self.get_post_data(soup, url))
-            time.sleep(0.3)
-            # self.data_post.append(self.writer_data(soup))
-            time.sleep(0.3)
-
-    def get_post_data(self, soup: BeautifulSoup, url):
-        content = soup.find('div', attrs={'class': 'blogpost-content', 'itemprop': "articleBody"})
-        img = content.find('img')
-        result_img = ''
-        datetime = soup.find('div', attrs={'class': 'blogpost-date-views'}).find(attrs={'class': 'text-md'}).text
-        temp_date = datetime.split()
-        if img:
-            result_img = img.get('src')
-        else:
-            result_img = None
-
-        result = {'url': url,
-                  'title': soup.find('h1', attrs={'class': 'blogpost-title'}).text,
-                  'img_url': result_img,
-                  'date': dt.datetime(year=dt.datetime.now().year, day=int(temp_date[0]), month=MONTHS[temp_date[1][:3]])
-                  }
-        self.db.add_post(Post(**result))
-
-    def writer_data(self, soup: BeautifulSoup):
-        autor = soup.find('div', attrs={'class': 'text-lg', 'itemprop': "author"})
-        writer_result = {
-            'name': autor.text,
-            'url': f'{"https://geekbrains.ru"}{autor.findParent("a").get("href")}',
+    def _parse_post(self, url_post: str) -> None:
+        page_data = {
+            'page_url': url_post,
+            'page_title': None,
+            'img_url': None,
+            'publication_date': None,
+            'author_name': None,
+            'author_url': None
         }
-        result = Writer(**writer_result)
+        soup = self._get_soup(url_post)
+        page_data['page_title'] = soup.h1.text
+        page_data['img_url'] = soup.img.attrs['src']
+        page_data['publication_date'] = datetime.fromisoformat(soup.time.attrs['datetime'])
+        author = soup.find('div', attrs={'itemprop': 'author'})
+        page_data['author_name'] = author.text
+        page_data['author_url'] = f'{self.start_website_url}{author.parent.attrs["href"]}'
 
-        return result
-
-    def tags_data(self, soup: BeautifulSoup):
         tags = soup.find_all('a', attrs={'class': 'small'})
-        tag = ''
-        for itm in tags:
-             tag += f'{itm.text}, '
+        tags_list = []
+        for tag in tags:
+            tags_list.append({'name': tag.text,
+                              'url': f'{self.start_website_url}{tag.attrs["href"]}'})
 
-        tags_result = {
-            'name': '',
-            'url': '',
+        comments = soup.comments
+        params = {
+            'commentable_type': comments.attrs['commentable-type'],  # 'Post',
+            'commentable_id': comments.attrs['commentable-id'],
+            'order': 'desc',
         }
+        response = requests.get('https://geekbrains.ru/api/v2/comments', headers=self._headers, params=params)
+        comments_json = response.json()
+        comments_list = []
+        if len(comments_json) > 0:
+            self._get_comment(comments_json, comments_list)
 
+        self.db_blog.save_to_db(page_data, tags_list, comments_list)
 
-    def comment_parse(self):
-        params = self.__params
-        response_comment = requests.get(self.__url['comment_url'], params=params)
-        soup_comment = BeautifulSoup(response_comment.text, 'lxml')
-        return soup_comment
+    def _get_page_max(self, start_page):
+        pagination = start_page.find('ul', attrs={'class': "gb__pagination"})
+        li_list = pagination.find_all('a')
+        page_max = 0
+        for li in li_list:
+            if li.text.isdigit():
+                page_max = int(li.text)
+        return page_max
+
+    def parse(self) -> None:
+        soup = self._get_soup(self.start_url)
+        page_max = self._get_page_max(soup)
+
+        for page_num in range(1, page_max+1):
+            if page_num > 1:
+                soup = self._get_soup(f"{self.start_url}?page={page_num}")
+
+            post_items = soup.find('div', attrs={'class': "post-items-wrapper"})
+            posts = post_items.findChildren('div', attrs={'class': 'post-item event'})
+            for post in posts:
+                self._parse_post(f'{self.start_website_url}{post.find("a").attrs["href"]}')
 
 
 if __name__ == '__main__':
-    db = Geek_posts('sqlite:///gb_blog.db')
-    parser = PostsParser(db)
+    url = 'https://geekbrains.ru/posts'
+    parser = PostsParser(url)
     parser.parse()
-    parser.main_parse()
-    parser.comment_parse()
