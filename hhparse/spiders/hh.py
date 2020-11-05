@@ -1,5 +1,5 @@
 import scrapy
-from ..loader import HhparseItem, HeadHunterCompanies
+from ..loader import HeadHunterJobsLoader, HeadHunterCompaniesLoader
 
 
 class HhSpider(scrapy.Spider):
@@ -22,7 +22,7 @@ class HhSpider(scrapy.Spider):
             yield response.follow(url, callback=self.vacancy_parse)
 
     def vacancy_parse(self, response, **kwargs):
-        loader = HhparseItem(response=response)
+        loader = HeadHunterJobsLoader(response=response)
         loader.add_value('url', response.url)
         loader.add_xpath('title', '//h1[contains(@class, "bloko-header-1")]/text()')
         loader.add_xpath('salary', '//p[contains(@class, "vacancy-salary")]/span/text()')
@@ -35,7 +35,7 @@ class HhSpider(scrapy.Spider):
             yield response.follow(url, callback=self.company_parse)
 
     def company_parse(self, response, **kwargs):
-        loader = HeadHunterCompanies(response=response)
+        loader = HeadHunterCompaniesLoader(response=response)
         loader.add_value('url', response.url)
         loader.add_xpath('title', '//div[@class="employer-sidebar-header"]//span//text()')
         loader.add_xpath('company_adress', '//div[@class="employer-sidebar-content"]/a/@href')
