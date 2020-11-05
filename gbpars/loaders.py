@@ -4,7 +4,20 @@ from scrapy import Selector
 from itemloaders.processors import TakeFirst, MapCompose
 from scrapy.loader import ItemLoader
 
-from .items import YoulaAutoItem
+from .items import YoulaAutoItem, TagInsta, PostInsta
+
+
+class InstagramLoader(ItemLoader):
+    date_parse_out = TakeFirst()
+    data_out = TakeFirst()
+
+
+class InstagramTagLoader(InstagramLoader):
+    default_item_class = TagInsta
+
+
+class InstagramPostLoader(InstagramLoader):
+    default_item_class = PostInsta
 
 
 def search_author_id(itm):

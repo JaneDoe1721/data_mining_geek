@@ -12,6 +12,21 @@ class GbparsItem(scrapy.Item):
     pass
 
 
+class Insta(scrapy.Item):
+    _id = scrapy.Field()
+    date_parse = scrapy.Field()
+    data = scrapy.Field()
+    img = scrapy.Field()
+
+
+class TagInsta(Insta):
+    pass
+
+
+class PostInsta(Insta):
+    pass
+
+
 class YoulaAutoItem(scrapy.Item):
     _id = scrapy.Field()
     title = scrapy.Field()
