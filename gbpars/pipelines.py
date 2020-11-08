@@ -26,6 +26,16 @@ class GbparsPipeline:
 class GbparsImagesPipeline(ImagesPipeline):
 
     def get_media_requests(self, item, info):
+        images = item.get('img',
+                          item.get('data', {}).get('profile_pic_url',
+                                                   item.get('data', {}).get('display_url',
+                                                                            []
+                                                                            )
+                                                   )
+                          )
+
+        if not isinstance(images, list):
+            images = [images]
         for url in item.get('img'):
             try:
                 yield Request(url)
@@ -33,6 +43,8 @@ class GbparsImagesPipeline(ImagesPipeline):
                 print(e)
 
     def item_completed(self, results, item, info):
-        if item.get('img'):
+        try:
             item['img'] = [itm[1] for itm in results if itm[0]]
+        except KeyError:
+            pass
         return item
