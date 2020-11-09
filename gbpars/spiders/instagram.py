@@ -2,7 +2,7 @@ import scrapy
 import json
 import datetime as dt
 
-from ..loaders import InstagramTagLoader, InstagramPostLoader
+from ..items import PostInsta, TagInsta, UserInsta, SubscribersInsta
 
 
 class InstagramSpider(scrapy.Spider):
@@ -12,11 +12,15 @@ class InstagramSpider(scrapy.Spider):
     login_url = 'https://www.instagram.com/accounts/login/ajax/'
 
     api_tag_url = '/graphql/query/'
+
     query_hash_tag = '9b498c08113f1e09617a1703c22b2f32'
     query_hash_post = '56a7068fea504063273cc2120ffd54f3'
+    query_hash_following = 'd04b0a864b4b54837c0d870b0e77e076'
+    query_hash_followers = 'c76146de99bb02f6415203be841dd25a'
 
     def __init__(self, login, enc_password, *args, **kwargs):
         self.tags = ['python', 'mongodb', 'brazil', 'mercedes']
+        self.user = ['tammyhembrow']
         self.login = login
         self.enc_password = enc_password
         super().__init__(*args, **kwargs)
@@ -36,22 +40,23 @@ class InstagramSpider(scrapy.Spider):
             )
         except AttributeError as e:
             if response.json().get('authenticated'):
-                for tag in self.tags:
-                    yield response.follow(f'/explore/tags/{tag}/', callback=self.tag_parse)
+                for user in self.user:
+                    yield response.follow(f'/{user}/', callback=self.user_parse)
 
     def tag_parse(self, response, **kwargs):
         tag = self.js_data_extract(response)['entry_data']['TagPage'][0]['graphql']['hashtag']
 
-        loader = InstagramTagLoader(response=response)
-        loader.add_value('date_parse', dt.datetime.now())
-        loader.add_value('data', tag)
-        loader.add_value('img', tag['profile_pic_url'])
-        yield loader.load_item()
+        yield TagInsta(
+            date_parse=dt.datetime.utcnow(),
+            data={
+                'id': tag['id'],
+                'name': tag['name'],
+                'profile_pic_url': tag['profile_pic_url'],
+            }
+        )
+        yield from self.tag_posts(tag, response)
 
-        for post in self.tag_posts(response, tag):
-            yield post
-
-    def tag_posts(self, response, tag,):
+    def tag_posts(self, tag, response):
         if tag['edge_hashtag_to_media']['page_info']['has_next_page']:
             variables = {
                 'tag_name': tag['name'],
@@ -61,25 +66,66 @@ class InstagramSpider(scrapy.Spider):
             url = f'{self.api_tag_url}?query_hash={self.query_hash_tag}&variables={json.dumps(variables)}'
             yield response.follow(url, callback=self.api_parse)
 
-        for post in self.posts_parse(response, tag):
-            yield post
+        yield from self.posts_parse(tag)
 
     def api_parse(self, response):
-        hashtag = response.json()['data']['hashtag']
-        for post in self.tag_posts(response, hashtag):
-            yield post
+        yield from self.tag_posts(response.json()['data']['hashtag'], response)
 
     @staticmethod
-    def posts_parse(response, tag):
-        for post in tag['edge_hashtag_to_media']['edges']:
-            loader = InstagramPostLoader(response=response)
-            loader.add_value('date_parse', dt.datetime.now())
-            loader.add_value('data', post['node'])
-            loader.add_value('img', post['node']['display_url'])
-            yield loader.load_item()
+    def posts_parse(tag):
+        edges = tag['edge_hashtag_to_media']['edges']
+        for node in edges:
+            yield PostInsta(
+                date_parse=dt.datetime.utcnow(),
+                data=node['node']
+            )
 
     @staticmethod
     def js_data_extract(response):
         script = response.xpath('//script[contains(text(), "window._sharedData =")]/text()').get()
         return json.loads(script.replace("window._sharedData =", '')[:-1])
 
+    def user_parse(self, response, **kwargs):
+        user_data = self.js_data_extract(response)['entry_data']['ProfilePage'][0]['graphql']['user']
+        yield UserInsta(
+            date_parse=dt.datetime.utcnow(),
+            data=user_data,
+        )
+        yield from self.follow_request(response, user_data)
+
+    def follow_request(self, response, user_data, variables=None):
+        if not variables:
+            variables = {
+                'id': user_data['id'],
+                'first': 50,
+            }
+        api_url = f'{self.api_tag_url}?query_hash={self.query_hash_following}&variables={json.dumps(variables)}'
+        yield response.follow(api_url, callback=self.following_followers_parse, cb_kwargs={'user_data': user_data})
+
+    def following_followers_parse(self, response, user_data):
+        print(1)
+        if b'application/json' in response.headers['Content-Type']:
+            print(1)
+            full_data = response.json()
+            yield from self.following_item(user_data, full_data['data']['user']['edge_follow']['edges'])
+            if full_data['data']['user']['edge_follow']['page_info']['has_next_page']:
+                variables = {
+                    'id': user_data['id'],
+                    'first': 50,
+                    'after': full_data['data']['user']['edge_follow']['page_info']['end_cursor'],
+                }
+                yield from self.follow_request(response, user_data, variables)
+
+    def following_item(self, user_data, follow_users):
+        for user in follow_users:
+            yield SubscribersInsta(
+                date_parse=dt.datetime.utcnow(),
+                user_id=user_data['id'],
+                user_name=user_data['username'],
+                follow_id=user['node']['id'],
+                follow_name=user['node']['username']
+            )
+            yield UserInsta(
+                date_parse=dt.datetime.utcnow(),
+                data=user['node']
+            )
