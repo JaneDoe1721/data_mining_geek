@@ -2,7 +2,7 @@ import scrapy
 import json
 import datetime as dt
 
-from ..items import PostInsta, TagInsta, UserInsta, SubscribersInsta
+from ..items import PostInsta, TagInsta, UserInsta, SubscribersInsta, InstagramFollowingItem
 
 
 class InstagramSpider(scrapy.Spider):
@@ -20,7 +20,7 @@ class InstagramSpider(scrapy.Spider):
 
     def __init__(self, login, enc_password, *args, **kwargs):
         self.tags = ['python', 'mongodb', 'brazil', 'mercedes']
-        self.user = ['tammyhembrow']
+        self.user = ['tammyhembrow', 'zidane']
         self.login = login
         self.enc_password = enc_password
         super().__init__(*args, **kwargs)
@@ -91,40 +91,55 @@ class InstagramSpider(scrapy.Spider):
             date_parse=dt.datetime.utcnow(),
             data=user_data,
         )
-        yield from self.follow_request(response, user_data)
+        yield from self.follow_request(response, user_data, self.query_hash_followers, 'edge_followed_by')
+        yield from self.follow_request(response, user_data, self.query_hash_following, 'edge_follow')
 
-    def follow_request(self, response, user_data, variables=None):
+    def follow_request(self, response, user_data, query_hash, edge, variables=None):
         if not variables:
             variables = {
                 'id': user_data['id'],
-                'first': 50,
+                'first': 100,
             }
-        api_url = f'{self.api_tag_url}?query_hash={self.query_hash_following}&variables={json.dumps(variables)}'
-        yield response.follow(api_url, callback=self.following_followers_parse, cb_kwargs={'user_data': user_data})
+        api_url = f'{self.api_tag_url}?query_hash={query_hash}&variables={json.dumps(variables)}'
+        yield response.follow(api_url, callback=self.following_followers_parse, cb_kwargs={'user_data': user_data,
+                                                                                           'edge': edge,
+                                                                                           'query_hash': query_hash,
+                                                                                           })
 
-    def following_followers_parse(self, response, user_data):
-        print(1)
+    def following_followers_parse(self, response, **kwargs):
         if b'application/json' in response.headers['Content-Type']:
-            print(1)
             full_data = response.json()
-            yield from self.following_item(user_data, full_data['data']['user']['edge_follow']['edges'])
-            if full_data['data']['user']['edge_follow']['page_info']['has_next_page']:
+            yield from self.following_item(kwargs['user_data'], full_data['data']['user'], kwargs['edge'])
+            if full_data['data']['user'][kwargs['edge']]['page_info']['has_next_page']:
+                end_cursor = full_data['data']['user'][kwargs['edge']]['page_info']['end_cursor']
                 variables = {
-                    'id': user_data['id'],
-                    'first': 50,
-                    'after': full_data['data']['user']['edge_follow']['page_info']['end_cursor'],
+                    'id': kwargs['user_data']['id'],
+                    'first': 100,
+                    'after': end_cursor,
                 }
-                yield from self.follow_request(response, user_data, variables)
+                yield from self.follow_request(response, kwargs['user_data'], kwargs['query_hash'],
+                                               kwargs['edge'], variables)
 
-    def following_item(self, user_data, follow_users):
-        for user in follow_users:
-            yield SubscribersInsta(
-                date_parse=dt.datetime.utcnow(),
-                user_id=user_data['id'],
-                user_name=user_data['username'],
-                follow_id=user['node']['id'],
-                follow_name=user['node']['username']
-            )
+    @staticmethod
+    def following_item(user_data, follow_data, edge):
+        for user in follow_data[edge]['edges']:
+            if edge == 'edge_followed_by':
+                yield SubscribersInsta(
+                    date_parse=dt.datetime.utcnow(),
+                    user_id=user_data['id'],
+                    user_name=user_data['username'],
+                    follow_id=user['node']['id'],
+                    follow_name=user['node']['username']
+                )
+            elif edge == 'edge_follow':
+                yield InstagramFollowingItem(
+                    user_id=user_data['id'],
+                    user_name=user_data['username'],
+                    following_id=user['node']['id'],
+                    following_name=user['node']['username'],
+                )
+            else:
+                pass
             yield UserInsta(
                 date_parse=dt.datetime.utcnow(),
                 data=user['node']

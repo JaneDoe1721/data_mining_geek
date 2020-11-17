@@ -40,6 +40,9 @@ class SubscribersInsta(scrapy.Item):
     follow_id = scrapy.Field()
 
 
+class InstagramFollowingItem(SubscribersInsta):
+    pass
+
 
 class YoulaAutoItem(scrapy.Item):
     _id = scrapy.Field()
